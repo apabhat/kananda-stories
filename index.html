@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="kn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ಮಕ್ಕಳ ಕಥಾ ಲೋಕ</title>
+    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet" />
+    <style>
+        :root { --primary: #6c5ce7; }
+        body { font-family: 'Segoe UI', sans-serif; background: #fdfcfb; min-height: 100vh; padding: 20px; }
+        .app-container { max-width: 500px; margin: auto; }
+        .header { background: var(--primary); color: white; padding: 20px; border-radius: 20px; text-align: center; margin-bottom: 20px; }
+        .card { background: white; padding: 20px; margin-bottom: 15px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        button { background: var(--primary); color: white; border: none; padding: 10px; border-radius: 20px; cursor: pointer; }
+        .btn-del { background: #ff7675; }
+        .btn-edit { background: #fdcb6e; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="header">
+        <h1>ಮಕ್ಕಳ ಕಥಾ ಲೋಕ</h1>
+        <p>ಲೇಖಕ: ಅನಂತ ಭಟ್ಟ</p>
+    </div>
+    <div id="content-area"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, getDocs, addDoc, doc, deleteDoc, setDoc, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCWHViJfTZJPh021xlmE_3ODR2ggqts0_c",
+  authDomain: "makkala-katha-loka.firebaseapp.com",
+  projectId: "makkala-katha-loka",
+  storageBucket: "makkala-katha-loka.firebasestorage.app",
+  messagingSenderId: "362578510871",
+  appId: "1:362578510871:web:32b04d59401599bb61c852",
+  measurementId: "G-8400QC8Z4S"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    let isAdmin = sessionStorage.getItem('isAdmin') === 'true';
+
+    const urlParams = new URLSearchParams(window.location.search);
+    if (!isAdmin && urlParams.has('admin')) {
+        const password = prompt("Admin ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿ:");
+        if (password === "Anant123") {
+            isAdmin = true;
+            sessionStorage.setItem('isAdmin', 'true');
+        }
+    }
+
+    window.renderIndex = async () => {
+        const stories = [];
+        const querySnapshot = await getDocs(query(collection(db, "stories"), orderBy("createdAt", "desc")));
+        querySnapshot.forEach((doc) => stories.push({ id: doc.id, ...doc.data() }));
+
+        document.getElementById('content-area').innerHTML = `
+            <div id="story-list" style="margin-top: 20px;"></div>
+            ${isAdmin ? '<button onclick="renderAdmin()" style="width:100%; padding:15px; margin-top:20px;">+ ಹೊಸ ಕಥೆ ಸೇರಿಸಿ</button>' : ''}
+        `;
+        
+        document.getElementById('story-list').innerHTML = stories.map(s => `
+            <div class="card">
+                ${s.image ? `<div style="width: 100%; height: 150px; overflow: hidden; border-radius: 10px; margin-bottom: 10px;"><img src="${s.image}" style="width: 100%; height: 100%; object-fit: cover;"></div>` : ''}
+                <h3 onclick="viewStory('${s.id}')" style="cursor:pointer; margin: 0;">${s.title}</h3>
+                <p style="font-size: 0.8em; color: #888; margin-top: 5px;">ದಿನಾಂಕ: ${s.createdAt ? new Date(s.createdAt.seconds * 1000).toLocaleDateString('kn-IN') : 'ಇತ್ತೀಚೆಗೆ'}</p>
+                ${isAdmin ? `<button class="btn-edit" onclick="renderAdmin('${s.id}')">ಎಡಿಟ್</button> <button class="btn-del" onclick="deleteStory('${s.id}')">ಅಳಿಸಿ</button>` : ''}
+            </div>`).join('');
+    };
+
+    window.renderAdmin = async (id = null) => {
+        let title = '', content = '';
+        if (id) {
+            const querySnapshot = await getDocs(collection(db, "stories"));
+            const docRef = querySnapshot.docs.find(d => d.id === id);
+            title = docRef.data().title;
+            content = docRef.data().content;
+        }
+        document.getElementById('content-area').innerHTML = `
+            <input type="text" id="title" value="${title}" placeholder="ಶೀರ್ಷಿಕೆ" style="width:100%; padding:10px; margin-bottom:10px; box-sizing:border-box;">
+            <input type="file" id="image-upload" style="margin-bottom:10px;">
+            <div id="editor" style="background:white; height:150px;">${content}</div>
+            <button onclick="saveStory('${id}')">ಉಳಿಸಿ</button>
+            <button onclick="location.reload()">ಹಿಂತಿರುಗಿ</button>
+        `;
+        new Quill('#editor', { theme: 'snow' });
+    };
+
+    window.saveStory = async (id) => {
+        const title = document.getElementById('title').value;
+        const content = document.querySelector('.ql-editor').innerHTML;
+        const fileInput = document.getElementById('image-upload');
+        const file = fileInput.files[0];
+        
+        if (!title) { alert("ಶೀರ್ಷಿಕೆ ಬರೆಯಿರಿ!"); return; }
+
+        let image = null;
+        if (file) {
+            image = await new Promise(resolve => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.readAsDataURL(file);
+            });
+        } else if (id !== 'null') {
+            const querySnapshot = await getDocs(collection(db, "stories"));
+            const docRef = querySnapshot.docs.find(d => d.id === id);
+            image = docRef.data().image;
+        }
+        
+        try {
+            const data = { title, content, image, createdAt: serverTimestamp() };
+            if (id !== 'null') {
+                await setDoc(doc(db, "stories", id), data, { merge: true });
+            } else {
+                await addDoc(collection(db, "stories"), data);
+            }
+            alert("ಕಥೆ ಯಶಸ್ವಿಯಾಗಿ ಉಳಿಸಲಾಗಿದೆ!");
+            location.reload();
+        } catch (error) {
+            console.error("Error saving story: ", error);
+            alert("ಉಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ: " + error.message);
+        }
+    };
+
+    window.deleteStory = async (id) => { if(confirm('ಈ ಕಥೆಯನ್ನು ಅಳಿಸಲು ಖಚಿತವೇ?')) { await deleteDoc(doc(db, "stories", id)); renderIndex(); } };
+
+    window.viewStory = async (id) => {
+        const querySnapshot = await getDocs(collection(db, "stories"));
+        const s = querySnapshot.docs.find(d => d.id === id).data();
+        document.getElementById('content-area').innerHTML = `
+            <button onclick="location.reload()">← ಹಿಂತಿರುಗಿ</button>
+            <div class="card">${s.image ? `<img src="${s.image}" style="width:100%; border-radius:10px;">` : ''}
+            <h1>${s.title}</h1><div>${s.content}</div></div>`;
+    };
+
+    renderIndex();
+</script>
+</body>
+</html>
